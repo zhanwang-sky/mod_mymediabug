@@ -16,6 +16,8 @@ SWITCH_MODULE_DEFINITION(mod_mymediabug, mod_mymediabug_load, mod_mymediabug_shu
 typedef struct mymediabug_session {
   switch_core_session_t* session;
   switch_media_bug_t* bug;
+  uint64_t rd_samples;
+  uint64_t wr_samples;
 } mymediabug_session_t;
 
 static struct {
@@ -35,6 +37,7 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
   switch_core_session_t* session = switch_core_media_bug_get_session(bug);
   mymediabug_session_t* mbs = (mymediabug_session_t*) data;
   switch_codec_t* read_codec = NULL;
+  switch_frame_t* frame = NULL;
   int sample_rate = -1;
   switch_bool_t ret = SWITCH_TRUE;
 
@@ -73,17 +76,25 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
       break; // case SWITCH_ABC_TYPE_INIT
 
     case SWITCH_ABC_TYPE_WRITE_REPLACE:
-      // XXX TODO
+      frame = switch_core_media_bug_get_write_replace_frame(bug);
+      if (frame) {
+        mbs->wr_samples += frame->samples;
+      }
       break;
 
     case SWITCH_ABC_TYPE_READ_REPLACE:
-      // XXX TODO
+      frame = switch_core_media_bug_get_read_replace_frame(bug);
+      if (frame) {
+        mbs->rd_samples += frame->samples;
+      }
       break;
 
     case SWITCH_ABC_TYPE_CLOSE:
       // XXX TODO: do clean
       switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE,
-                        "mymediabug_cb[close]: mymediabug_session ended\n");
+                        "mymediabug_cb[close]: mymediabug_session ended, "
+                        "total %lu frames read, %lu frames write\n",
+                        mbs->rd_samples, mbs->wr_samples);
       break;
 
     default:
@@ -116,7 +127,7 @@ SWITCH_STANDARD_APP(mymediabug_app_func) {
   }
 
   if (switch_core_media_bug_add(session, "mymediabug", NULL, mymediabug_cb, mbs, 0,
-                                SMBF_READ_STREAM | SMBF_WRITE_STREAM,
+                                SMBF_WRITE_REPLACE | SMBF_READ_REPLACE,
                                 &bug) != SWITCH_STATUS_SUCCESS) {
     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
                       "app_func: fail to add media bug!\n");
@@ -148,7 +159,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_mymediabug_load) {
 
   SWITCH_ADD_APP(app_interface,
                  "mymediabug", "do something with media data", "mymediabug - do something with media data",
-                 mymediabug_app_func, "rtmp://balabala/foo/bar", SAF_MEDIA_TAP);
+                 mymediabug_app_func, "rtmp://balabala.com/foo/bar", SAF_MEDIA_TAP);
 
   switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "%s loaded\n", modname);
 
