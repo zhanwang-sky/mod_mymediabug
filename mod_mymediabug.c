@@ -8,6 +8,8 @@
 #include <switch.h>
 
 #define MB_CONFIG_FILE "mymediabug.conf"
+#define MB_EVENT_WR_ACT "mymediabug::wr_act"
+#define MB_EVENT_RD_ACT "mymediabug::rd_act"
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_mymediabug_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_mymediabug_shutdown);
@@ -16,8 +18,11 @@ SWITCH_MODULE_DEFINITION(mod_mymediabug, mod_mymediabug_load, mod_mymediabug_shu
 typedef struct mymediabug_session {
   switch_core_session_t* session;
   switch_media_bug_t* bug;
+  uint32_t sample_rate;
   uint64_t rd_samples;
   uint64_t wr_samples;
+  switch_bool_t wr_act_fired;
+  switch_bool_t rd_act_fired;
 } mymediabug_session_t;
 
 static struct {
@@ -33,12 +38,28 @@ static switch_xml_config_item_t mb_instructions[] = {
 };
 
 static switch_bool_t
+mymediabug_fire_event(const char* uuid, const char* event_name) {
+  switch_event_t* event = NULL;
+
+  if (switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, event_name) != SWITCH_STATUS_SUCCESS) {
+    return SWITCH_FALSE;
+  }
+  switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-UUID", "%s", uuid);
+
+  DUMP_EVENT(event);
+
+  switch_event_fire(&event);
+
+  return SWITCH_TRUE;
+}
+
+static switch_bool_t
 mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
   switch_core_session_t* session = switch_core_media_bug_get_session(bug);
   mymediabug_session_t* mbs = (mymediabug_session_t*) data;
   switch_codec_t* read_codec = NULL;
   switch_frame_t* frame = NULL;
-  int sample_rate = -1;
+  uint32_t sample_rate = 0;
   switch_bool_t ret = SWITCH_TRUE;
 
   switch (type) {
@@ -62,9 +83,10 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
           ret = SWITCH_FALSE;
           break;
         }
+        mbs->sample_rate = sample_rate;
 
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_NOTICE,
-                          "mymediabug_cb[init]: mymediabug_session started, sample_rate=%d\n",
+                          "mymediabug_cb[init]: mymediabug_session started, sample_rate=%u\n",
                           sample_rate);
 
       } while (0);
@@ -79,6 +101,10 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
       frame = switch_core_media_bug_get_write_replace_frame(bug);
       if (frame) {
         mbs->wr_samples += frame->samples;
+        if (!mbs->wr_act_fired && (mbs->wr_samples > mbs->sample_rate)) {
+          char* uuid = switch_core_session_get_uuid(session);
+          mbs->wr_act_fired = mymediabug_fire_event(uuid, MB_EVENT_WR_ACT);
+        }
       }
       break;
 
@@ -86,6 +112,10 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
       frame = switch_core_media_bug_get_read_replace_frame(bug);
       if (frame) {
         mbs->rd_samples += frame->samples;
+        if (!mbs->rd_act_fired && (mbs->rd_samples > mbs->sample_rate)) {
+          char* uuid = switch_core_session_get_uuid(session);
+          mbs->rd_act_fired = mymediabug_fire_event(uuid, MB_EVENT_RD_ACT);
+        }
       }
       break;
 
