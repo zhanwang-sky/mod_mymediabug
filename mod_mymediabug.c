@@ -79,7 +79,7 @@ mymediabug_cb(switch_media_bug_t* bug, void* data, switch_abc_type_t type) {
         sample_rate = read_codec->implementation->samples_per_second;
         if (sample_rate < 8000 || sample_rate > 48000) {
           switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
-                            "mymediabug_cb[init]: unsupported sample_rate: %d\n", sample_rate);
+                            "mymediabug_cb[init]: unsupported sample_rate: %u\n", sample_rate);
           ret = SWITCH_FALSE;
           break;
         }
